@@ -49,7 +49,15 @@ public interface InvoiceStrings {
 
     String getInvoiceItemAmount();
 
+    String getInvoiceItemAmountTax();
+    
+    String getInvoiceItemAmountExclTax();
+
     String getInvoiceAmount();
+
+    String getInvoiceAmountTax();
+
+    String getInvoiceAmountExclTax();
 
     String getInvoiceAmountPaid();
 

@@ -52,6 +52,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 
 import static com.ning.billing.util.DefaultAmountFormatter.round;
+import java.math.RoundingMode;
 
 /**
  * Format invoice fields
@@ -192,6 +193,15 @@ public class DefaultInvoiceFormatter implements InvoiceFormatter {
     @Override
     public BigDecimal getChargedAmount() {
         return round(Objects.firstNonNull(invoice.getChargedAmount(), BigDecimal.ZERO));
+    }
+
+    public BigDecimal getChargedAmountTax() {
+        return round(getChargedAmount().subtract(getChargedAmountExclTax()));
+    }
+
+    public BigDecimal getChargedAmountExclTax() {
+        BigDecimal amount = Objects.firstNonNull(invoice.getChargedAmount(), BigDecimal.ZERO);
+        return round(amount.divide(new BigDecimal("1.21"), 2, RoundingMode.HALF_UP));
     }
 
     @Override

@@ -122,8 +122,28 @@ public class DefaultInvoiceTranslator extends DefaultTranslatorBase implements I
     }
 
     @Override
+    public String getInvoiceItemAmountTax() {
+        return getTranslation(locale, "invoiceItemAmountTax");
+    }
+
+    @Override
+    public String getInvoiceItemAmountExclTax() {
+        return getTranslation(locale, "invoiceItemAmountExclTax");
+    }
+
+    @Override
     public String getInvoiceAmount() {
         return getTranslation(locale, "invoiceAmount");
+    }
+
+    @Override
+    public String getInvoiceAmountTax() {
+        return getTranslation(locale, "invoiceAmountTax");
+    }
+
+    @Override
+    public String getInvoiceAmountExclTax() {
+        return getTranslation(locale, "invoiceAmountExclTax");
     }
 
     @Override
