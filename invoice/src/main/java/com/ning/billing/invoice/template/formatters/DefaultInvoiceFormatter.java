@@ -45,6 +45,7 @@ import com.ning.billing.invoice.api.formatters.InvoiceFormatter;
 import com.ning.billing.invoice.model.CreditAdjInvoiceItem;
 import com.ning.billing.invoice.model.CreditBalanceAdjInvoiceItem;
 import com.ning.billing.invoice.model.DefaultInvoice;
+import com.ning.billing.invoice.calculator.InvoiceCalculatorUtils;
 import com.ning.billing.util.template.translation.TranslatorConfig;
 
 import com.google.common.base.Objects;
@@ -52,7 +53,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 
 import static com.ning.billing.util.DefaultAmountFormatter.round;
-import java.math.RoundingMode;
 
 /**
  * Format invoice fields
@@ -110,7 +110,7 @@ public class DefaultInvoiceFormatter implements InvoiceFormatter {
 
         final List<InvoiceItem> formatters = new ArrayList<InvoiceItem>();
         for (final InvoiceItem item : invoiceItems) {
-            formatters.add(new DefaultInvoiceItemFormatter(config, item, dateFormatter, locale));
+            formatters.add(new DefaultInvoiceItemFormatter(config, item, dateFormatter, locale, this));
         }
         return formatters;
     }
@@ -200,8 +200,7 @@ public class DefaultInvoiceFormatter implements InvoiceFormatter {
     }
 
     public BigDecimal getChargedAmountExclTax() {
-        BigDecimal amount = Objects.firstNonNull(invoice.getChargedAmount(), BigDecimal.ZERO);
-        return round(amount.divide(new BigDecimal("1.21"), 2, RoundingMode.HALF_UP));
+        return InvoiceCalculatorUtils.computeAmountExclTax(invoice.getChargedAmount(), getCreatedDate());
     }
 
     @Override

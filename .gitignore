@@ -24,3 +24,5 @@ catalog/src/test/resources/CatalogSchema.xsd
 server/load
 dependency-reduced-pom.xml
 dependency-reduced-pom.xml.bak
+/*/nb-configuration.xml
+nb-configuration.xml
