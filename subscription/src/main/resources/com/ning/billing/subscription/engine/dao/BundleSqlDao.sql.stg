@@ -36,6 +36,17 @@ where id = :id
 ;
 >>
 
+updateBundleExternalKey()  ::= <<
+update <tableName()>
+set
+external_key = :externalKey
+, updated_by = :createdBy
+, updated_date = :createdDate
+where id = :id
+<AND_CHECK_TENANT()>
+;
+>>
+
 getBundlesForKey() ::= <<
 select <allTableFields()>
 from bundles
@@ -64,5 +75,21 @@ where
 account_id = :accountId
 <AND_CHECK_TENANT()>
 <defaultOrderBy()>
+;
+>>
+
+searchBundles() ::= <<
+select SQL_CALC_FOUND_ROWS
+<allTableFields("t.")>
+from <tableName()> t
+where 1 = 1
+and (
+     <idField("t.")> = :searchKey
+  or t.external_key = :searchKey
+  or t.account_id = :searchKey
+)
+<AND_CHECK_TENANT("t.")>
+order by <recordIdField("t.")> ASC
+limit :offset, :rowCount
 ;
 >>

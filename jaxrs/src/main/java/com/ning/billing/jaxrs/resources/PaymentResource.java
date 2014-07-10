@@ -17,11 +17,13 @@
 package com.ning.billing.jaxrs.resources;
 
 import java.math.BigDecimal;
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.Consumes;
@@ -64,11 +66,15 @@ import com.ning.billing.util.api.CustomFieldUserApi;
 import com.ning.billing.util.api.TagApiException;
 import com.ning.billing.util.api.TagDefinitionApiException;
 import com.ning.billing.util.api.TagUserApi;
+import com.ning.billing.util.audit.AccountAuditLogs;
 import com.ning.billing.util.callcontext.CallContext;
 import com.ning.billing.util.callcontext.TenantContext;
+import com.ning.billing.util.entity.Pagination;
 
 import com.google.common.base.Function;
+import com.google.common.base.Strings;
 import com.google.common.collect.Collections2;
+import com.google.common.collect.ImmutableMap;
 import com.google.inject.Inject;
 
 import static javax.ws.rs.core.MediaType.APPLICATION_JSON;
@@ -128,6 +134,79 @@ public class PaymentResource extends JaxRsResourceBase {
         }
 
         return Response.status(Status.OK).entity(paymentJson).build();
+    }
+
+    @GET
+    @Path("/" + PAGINATION)
+    @Produces(APPLICATION_JSON)
+    public Response getPayments(@QueryParam(QUERY_SEARCH_OFFSET) @DefaultValue("0") final Long offset,
+                                @QueryParam(QUERY_SEARCH_LIMIT) @DefaultValue("100") final Long limit,
+                                @QueryParam(QUERY_PAYMENT_PLUGIN_NAME) final String pluginName,
+                                @QueryParam(QUERY_AUDIT) @DefaultValue("NONE") final AuditMode auditMode,
+                                @javax.ws.rs.core.Context final HttpServletRequest request) throws PaymentApiException {
+        final TenantContext tenantContext = context.createContext(request);
+
+        final Pagination<Payment> payments;
+        if (Strings.isNullOrEmpty(pluginName)) {
+            payments = paymentApi.getPayments(offset, limit, tenantContext);
+        } else {
+            payments = paymentApi.getPayments(offset, limit, pluginName, tenantContext);
+        }
+
+        final URI nextPageUri = uriBuilder.nextPage(PaymentResource.class, "getPayments", payments.getNextOffset(), limit, ImmutableMap.<String, String>of(QUERY_PAYMENT_METHOD_PLUGIN_NAME, Strings.nullToEmpty(pluginName),
+                                                                                                                                                           QUERY_AUDIT, auditMode.getLevel().toString()));
+        final AtomicReference<Map<UUID, AccountAuditLogs>> accountsAuditLogs = new AtomicReference<Map<UUID, AccountAuditLogs>>(new HashMap<UUID, AccountAuditLogs>());
+
+        return buildStreamingPaginationResponse(payments,
+                                                new Function<Payment, PaymentJson>() {
+                                                    @Override
+                                                    public PaymentJson apply(final Payment payment) {
+                                                        // Cache audit logs per account
+                                                        if (accountsAuditLogs.get().get(payment.getAccountId()) == null) {
+                                                            accountsAuditLogs.get().put(payment.getAccountId(), auditUserApi.getAccountAuditLogs(payment.getAccountId(), auditMode.getLevel(), tenantContext));
+                                                        }
+                                                        return new PaymentJson(payment, accountsAuditLogs.get().get(payment.getAccountId()).getAuditLogsForPayment(payment.getId()));
+                                                    }
+                                                },
+                                                nextPageUri);
+    }
+
+    @GET
+    @Path("/" + SEARCH + "/{searchKey:" + ANYTHING_PATTERN + "}")
+    @Produces(APPLICATION_JSON)
+    public Response searchPayments(@PathParam("searchKey") final String searchKey,
+                                   @QueryParam(QUERY_SEARCH_OFFSET) @DefaultValue("0") final Long offset,
+                                   @QueryParam(QUERY_SEARCH_LIMIT) @DefaultValue("100") final Long limit,
+                                   @QueryParam(QUERY_PAYMENT_PLUGIN_NAME) final String pluginName,
+                                   @QueryParam(QUERY_AUDIT) @DefaultValue("NONE") final AuditMode auditMode,
+                                   @javax.ws.rs.core.Context final HttpServletRequest request) throws PaymentApiException {
+        final TenantContext tenantContext = context.createContext(request);
+
+        // Search the plugin(s)
+        final Pagination<Payment> payments;
+        if (Strings.isNullOrEmpty(pluginName)) {
+            payments = paymentApi.searchPayments(searchKey, offset, limit, tenantContext);
+        } else {
+            payments = paymentApi.searchPayments(searchKey, offset, limit, pluginName, tenantContext);
+        }
+
+        final URI nextPageUri = uriBuilder.nextPage(PaymentResource.class, "searchPayments", payments.getNextOffset(), limit, ImmutableMap.<String, String>of("searchKey", searchKey,
+                                                                                                                                                              QUERY_PAYMENT_METHOD_PLUGIN_NAME, Strings.nullToEmpty(pluginName),
+                                                                                                                                                              QUERY_AUDIT, auditMode.getLevel().toString()));
+        final AtomicReference<Map<UUID, AccountAuditLogs>> accountsAuditLogs = new AtomicReference<Map<UUID, AccountAuditLogs>>(new HashMap<UUID, AccountAuditLogs>());
+
+        return buildStreamingPaginationResponse(payments,
+                                                new Function<Payment, PaymentJson>() {
+                                                    @Override
+                                                    public PaymentJson apply(final Payment payment) {
+                                                        // Cache audit logs per account
+                                                        if (accountsAuditLogs.get().get(payment.getAccountId()) == null) {
+                                                            accountsAuditLogs.get().put(payment.getAccountId(), auditUserApi.getAccountAuditLogs(payment.getAccountId(), auditMode.getLevel(), tenantContext));
+                                                        }
+                                                        return new PaymentJson(payment, accountsAuditLogs.get().get(payment.getAccountId()).getAuditLogsForPayment(payment.getId()));
+                                                    }
+                                                },
+                                                nextPageUri);
     }
 
     @PUT
@@ -243,9 +322,10 @@ public class PaymentResource extends JaxRsResourceBase {
                                        @HeaderParam(HDR_CREATED_BY) final String createdBy,
                                        @HeaderParam(HDR_REASON) final String reason,
                                        @HeaderParam(HDR_COMMENT) final String comment,
-                                       @javax.ws.rs.core.Context final HttpServletRequest request) throws CustomFieldApiException {
+                                       @javax.ws.rs.core.Context final HttpServletRequest request,
+                                       @javax.ws.rs.core.Context final UriInfo uriInfo) throws CustomFieldApiException {
         return super.createCustomFields(UUID.fromString(id), customFields,
-                                        context.createContext(createdBy, reason, comment, request));
+                                        context.createContext(createdBy, reason, comment, request), uriInfo);
     }
 
     @DELETE
@@ -257,7 +337,7 @@ public class PaymentResource extends JaxRsResourceBase {
                                        @HeaderParam(HDR_CREATED_BY) final String createdBy,
                                        @HeaderParam(HDR_REASON) final String reason,
                                        @HeaderParam(HDR_COMMENT) final String comment,
-                                       @javax.ws.rs.core.Context final HttpServletRequest request) {
+                                       @javax.ws.rs.core.Context final HttpServletRequest request) throws CustomFieldApiException {
         return super.deleteCustomFields(UUID.fromString(id), customFieldList,
                                         context.createContext(createdBy, reason, comment, request));
     }

@@ -45,6 +45,8 @@ public interface PaymentDao {
 
     public PaymentModelDao getLastPaymentForPaymentMethod(UUID accountId, UUID paymentMethodId, InternalTenantContext context);
 
+    public Pagination<PaymentModelDao> getPayments(String pluginName, Long offset, Long limit, InternalTenantContext context);
+
     public PaymentModelDao getPayment(UUID paymentId, InternalTenantContext context);
 
     public List<PaymentAttemptModelDao> getAttemptsForPayment(UUID paymentId, InternalTenantContext context);
@@ -52,6 +54,8 @@ public interface PaymentDao {
     public RefundModelDao insertRefund(RefundModelDao refundInfo, InternalCallContext context);
 
     public void updateRefundStatus(UUID refundId, RefundStatus status, BigDecimal processedAmount, Currency processedCurrency, InternalCallContext context);
+
+    public Pagination<RefundModelDao> getRefunds(String pluginName, Long offset, Long limit, InternalTenantContext context);
 
     public RefundModelDao getRefund(UUID refundId, InternalTenantContext context);
 

@@ -63,3 +63,15 @@ where account_id = :accountId
 <defaultOrderBy()>
 ;
 >>
+
+getByPluginName(pluginName, offset, rowCount) ::= <<
+select SQL_CALC_FOUND_ROWS
+<allTableFields("t.")>
+from <tableName()> t
+join payments p on p.id = t.payment_id
+join payment_methods pm on pm.id = p.payment_method_id
+where pm.plugin_name = :pluginName
+order by record_id
+limit :offset, :rowCount
+;
+>>

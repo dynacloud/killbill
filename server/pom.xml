@@ -19,7 +19,7 @@
     <parent>
         <artifactId>killbill</artifactId>
         <groupId>com.ning.billing</groupId>
-        <version>0.8.7</version>
+        <version>0.8.14</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
     <artifactId>killbill-server</artifactId>
@@ -73,7 +73,6 @@
         <dependency>
             <groupId>com.ning</groupId>
             <artifactId>async-http-client</artifactId>
-            <version>${async-http-client.version}</version>
         </dependency>
         <dependency>
             <groupId>com.ning.billing</groupId>
@@ -96,6 +95,10 @@
         <dependency>
             <groupId>com.ning.billing</groupId>
             <artifactId>killbill-catalog</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.ning.billing</groupId>
+            <artifactId>killbill-client-java</artifactId>
         </dependency>
         <dependency>
             <groupId>com.ning.billing</groupId>

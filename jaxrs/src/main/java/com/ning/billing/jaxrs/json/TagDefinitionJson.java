@@ -21,6 +21,7 @@ import java.util.List;
 import javax.annotation.Nullable;
 
 import com.ning.billing.ObjectType;
+import com.ning.billing.util.audit.AuditLog;
 import com.ning.billing.util.tag.TagDefinition;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
@@ -29,7 +30,7 @@ import com.google.common.base.Function;
 import com.google.common.collect.Collections2;
 import com.google.common.collect.ImmutableList;
 
-public class TagDefinitionJson {
+public class TagDefinitionJson extends JsonBase {
 
     private final String id;
     private final Boolean isControlTag;
@@ -42,7 +43,9 @@ public class TagDefinitionJson {
                              @JsonProperty("isControlTag") final Boolean isControlTag,
                              @JsonProperty("name") final String name,
                              @JsonProperty("description") @Nullable final String description,
-                             @JsonProperty("applicableObjectTypes") @Nullable final List<String> applicableObjectTypes) {
+                             @JsonProperty("applicableObjectTypes") @Nullable final List<String> applicableObjectTypes,
+                             @JsonProperty("auditLogs") @Nullable final List<AuditLogJson> auditLogs) {
+        super(auditLogs);
         this.id = id;
         this.isControlTag = isControlTag;
         this.name = name;
@@ -50,18 +53,22 @@ public class TagDefinitionJson {
         this.applicableObjectTypes = applicableObjectTypes;
     }
 
-    public TagDefinitionJson(final TagDefinition tagDefinition) {
-        this(tagDefinition.getId().toString(), tagDefinition.isControlTag(), tagDefinition.getName(),
-             tagDefinition.getDescription(), ImmutableList.<String>copyOf(Collections2.transform(tagDefinition.getApplicableObjectTypes(), new Function<ObjectType, String>() {
-            @Override
-            public String apply(@Nullable final ObjectType input) {
-                if (input == null) {
-                    return "";
-                } else {
-                    return input.toString();
-                }
-            }
-        })));
+    public TagDefinitionJson(final TagDefinition tagDefinition, @Nullable final List<AuditLog> auditLogs) {
+        this(tagDefinition.getId().toString(),
+             tagDefinition.isControlTag(),
+             tagDefinition.getName(),
+             tagDefinition.getDescription(),
+             ImmutableList.<String>copyOf(Collections2.transform(tagDefinition.getApplicableObjectTypes(), new Function<ObjectType, String>() {
+                 @Override
+                 public String apply(@Nullable final ObjectType input) {
+                     if (input == null) {
+                         return "";
+                     } else {
+                         return input.toString();
+                     }
+                 }
+             })),
+             toAuditLogJson(auditLogs));
     }
 
     public String getId() {

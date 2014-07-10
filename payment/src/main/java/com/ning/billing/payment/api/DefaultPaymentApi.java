@@ -74,10 +74,26 @@ public class DefaultPaymentApi implements PaymentApi {
     }
 
     @Override
+    public void notifyPendingPaymentOfStateChanged(final Account account, final UUID paymentId, final boolean isSuccess, final CallContext context) throws PaymentApiException {
+        paymentProcessor.notifyPendingPaymentOfStateChanged(account, paymentId, isSuccess,
+                                                            internalCallContextFactory.createInternalCallContext(account.getId(), context));
+    }
+
+    @Override
     public Payment retryPayment(final Account account, final UUID paymentId, final CallContext context) throws PaymentApiException {
         final InternalCallContext internalCallContext = internalCallContextFactory.createInternalCallContext(account.getId(), context);
         paymentProcessor.retryPaymentFromApi(paymentId, internalCallContext);
         return getPayment(paymentId, false, context);
+    }
+
+    @Override
+    public Pagination<Payment> getPayments(final Long offset, final Long limit, final TenantContext context) {
+        return paymentProcessor.getPayments(offset, limit, context, internalCallContextFactory.createInternalTenantContext(context));
+    }
+
+    @Override
+    public Pagination<Payment> getPayments(final Long offset, final Long limit, final String pluginName, final TenantContext tenantContext) throws PaymentApiException {
+        return paymentProcessor.getPayments(offset, limit, pluginName, tenantContext, internalCallContextFactory.createInternalTenantContext(tenantContext));
     }
 
     @Override
@@ -97,6 +113,26 @@ public class DefaultPaymentApi implements PaymentApi {
     @Override
     public Pagination<Payment> searchPayments(final String searchKey, final Long offset, final Long limit, final String pluginName, final TenantContext context) throws PaymentApiException {
         return paymentProcessor.searchPayments(searchKey, offset, limit, pluginName, internalCallContextFactory.createInternalTenantContext(context));
+    }
+
+    @Override
+    public Pagination<Refund> getRefunds(final Long offset, final Long limit, final TenantContext context) {
+        return refundProcessor.getRefunds(offset, limit, context, internalCallContextFactory.createInternalTenantContext(context));
+    }
+
+    @Override
+    public Pagination<Refund> getRefunds(final Long offset, final Long limit, final String pluginName, final TenantContext tenantContext) throws PaymentApiException {
+        return refundProcessor.getRefunds(offset, limit, pluginName, tenantContext, internalCallContextFactory.createInternalTenantContext(tenantContext));
+    }
+
+    @Override
+    public Pagination<Refund> searchRefunds(final String searchKey, final Long offset, final Long limit, final TenantContext context) {
+        return refundProcessor.searchRefunds(searchKey, offset, limit, internalCallContextFactory.createInternalTenantContext(context));
+    }
+
+    @Override
+    public Pagination<Refund> searchRefunds(final String searchKey, final Long offset, final Long limit, final String pluginName, final TenantContext context) throws PaymentApiException {
+        return refundProcessor.searchRefunds(searchKey, offset, limit, pluginName, internalCallContextFactory.createInternalTenantContext(context));
     }
 
     @Override
@@ -122,6 +158,12 @@ public class DefaultPaymentApi implements PaymentApi {
         }
         return refundProcessor.createRefund(account, paymentId, refundAmount, false, ImmutableMap.<UUID, BigDecimal>of(),
                                             internalCallContextFactory.createInternalCallContext(account.getId(), context));
+    }
+
+    @Override
+    public void notifyPendingRefundOfStateChanged(final Account account, final UUID refundId, final boolean isSuccess, final CallContext context) throws PaymentApiException {
+        refundProcessor.notifyPendingRefundOfStateChanged(account, refundId, isSuccess,
+                                                          internalCallContextFactory.createInternalCallContext(account.getId(), context));
     }
 
     @Override

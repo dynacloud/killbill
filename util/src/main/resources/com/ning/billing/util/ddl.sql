@@ -6,6 +6,7 @@ CREATE TABLE custom_fields (
     id char(36) NOT NULL,
     object_id char(36) NOT NULL,
     object_type varchar(30) NOT NULL,
+    is_active bool DEFAULT true,
     field_name varchar(30) NOT NULL,
     field_value varchar(255),
     created_by varchar(50) NOT NULL,
@@ -18,7 +19,6 @@ CREATE TABLE custom_fields (
 ) CHARACTER SET utf8 COLLATE utf8_bin;
 CREATE UNIQUE INDEX custom_fields_id ON custom_fields(id);
 CREATE INDEX custom_fields_object_id_object_type ON custom_fields(object_id, object_type);
-CREATE UNIQUE INDEX custom_fields_unique ON custom_fields(object_id, object_type, field_name);
 CREATE INDEX custom_fields_tenant_account_record_id ON custom_fields(tenant_record_id, account_record_id);
 
 DROP TABLE IF EXISTS custom_field_history;
@@ -28,6 +28,7 @@ CREATE TABLE custom_field_history (
     target_record_id int(11) unsigned NOT NULL,
     object_id char(36) NOT NULL,
     object_type varchar(30) NOT NULL,
+    is_active bool DEFAULT true,
     field_name varchar(30),
     field_value varchar(255),
     change_type char(6) NOT NULL,
@@ -158,6 +159,7 @@ CREATE TABLE notifications (
     processing_owner char(50) DEFAULT NULL,
     processing_available_date datetime DEFAULT NULL,
     processing_state varchar(14) DEFAULT 'AVAILABLE',
+    error_count int(11) unsigned DEFAULT 0,
     search_key1 int(11) unsigned default null,
     search_key2 int(11) unsigned default null,
     queue_name char(64) NOT NULL,
@@ -181,6 +183,7 @@ CREATE TABLE notifications_history (
     processing_owner char(50) DEFAULT NULL,
     processing_available_date datetime DEFAULT NULL,
     processing_state varchar(14) DEFAULT 'AVAILABLE',
+    error_count int(11) unsigned DEFAULT 0,
     search_key1 int(11) unsigned default null,
     search_key2 int(11) unsigned default null,
     queue_name char(64) NOT NULL,
@@ -200,6 +203,7 @@ CREATE TABLE bus_events (
     processing_owner char(50) DEFAULT NULL,
     processing_available_date datetime DEFAULT NULL,
     processing_state varchar(14) DEFAULT 'AVAILABLE',
+    error_count int(11) unsigned DEFAULT 0,
     search_key1 int(11) unsigned default null,
     search_key2 int(11) unsigned default null,
     PRIMARY KEY(record_id)
@@ -218,6 +222,7 @@ CREATE TABLE bus_events_history (
     processing_owner char(50) DEFAULT NULL,
     processing_available_date datetime DEFAULT NULL,
     processing_state varchar(14) DEFAULT 'AVAILABLE',
+    error_count int(11) unsigned DEFAULT 0,
     search_key1 int(11) unsigned default null,
     search_key2 int(11) unsigned default null,
     PRIMARY KEY(record_id)

@@ -16,8 +16,6 @@
 
 package com.ning.billing.jaxrs.resources;
 
-import java.io.IOException;
-import java.io.OutputStream;
 import java.math.BigDecimal;
 import java.net.URI;
 import java.util.ArrayList;
@@ -39,10 +37,8 @@ import javax.ws.rs.Path;
 import javax.ws.rs.PathParam;
 import javax.ws.rs.Produces;
 import javax.ws.rs.QueryParam;
-import javax.ws.rs.WebApplicationException;
 import javax.ws.rs.core.Response;
 import javax.ws.rs.core.Response.Status;
-import javax.ws.rs.core.StreamingOutput;
 import javax.ws.rs.core.UriInfo;
 
 import com.ning.billing.ErrorCode;
@@ -84,6 +80,7 @@ import com.ning.billing.payment.api.PaymentApi;
 import com.ning.billing.payment.api.PaymentApiException;
 import com.ning.billing.payment.api.PaymentMethod;
 import com.ning.billing.payment.api.Refund;
+import com.ning.billing.util.api.AuditLevel;
 import com.ning.billing.util.api.AuditUserApi;
 import com.ning.billing.util.api.CustomFieldApiException;
 import com.ning.billing.util.api.CustomFieldUserApi;
@@ -96,11 +93,12 @@ import com.ning.billing.util.callcontext.TenantContext;
 import com.ning.billing.util.entity.Pagination;
 import com.ning.billing.util.tag.ControlTagType;
 
-import com.fasterxml.jackson.core.JsonGenerator;
 import com.google.common.base.Function;
+import com.google.common.base.Predicate;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Collections2;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Multimap;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
@@ -146,10 +144,12 @@ public class AccountResource extends JaxRsResourceBase {
     public Response getAccount(@PathParam("accountId") final String accountId,
                                @QueryParam(QUERY_ACCOUNT_WITH_BALANCE) @DefaultValue("false") final Boolean accountWithBalance,
                                @QueryParam(QUERY_ACCOUNT_WITH_BALANCE_AND_CBA) @DefaultValue("false") final Boolean accountWithBalanceAndCBA,
+                               @QueryParam(QUERY_AUDIT) @DefaultValue("NONE") final AuditMode auditMode,
                                @javax.ws.rs.core.Context final HttpServletRequest request) throws AccountApiException {
         final TenantContext tenantContext = context.createContext(request);
         final Account account = accountUserApi.getAccountById(UUID.fromString(accountId), tenantContext);
-        final AccountJson accountJson = getAccount(account, accountWithBalance, accountWithBalanceAndCBA, tenantContext);
+        final AccountAuditLogs accountAuditLogs = auditUserApi.getAccountAuditLogs(account.getId(), auditMode.getLevel(), tenantContext);
+        final AccountJson accountJson = getAccount(account, accountWithBalance, accountWithBalanceAndCBA, accountAuditLogs, tenantContext);
         return Response.status(Status.OK).entity(accountJson).build();
     }
 
@@ -160,11 +160,22 @@ public class AccountResource extends JaxRsResourceBase {
                                 @QueryParam(QUERY_SEARCH_LIMIT) @DefaultValue("100") final Long limit,
                                 @QueryParam(QUERY_ACCOUNT_WITH_BALANCE) @DefaultValue("false") final Boolean accountWithBalance,
                                 @QueryParam(QUERY_ACCOUNT_WITH_BALANCE_AND_CBA) @DefaultValue("false") final Boolean accountWithBalanceAndCBA,
+                                @QueryParam(QUERY_AUDIT) @DefaultValue("NONE") final AuditMode auditMode,
                                 @javax.ws.rs.core.Context final HttpServletRequest request) throws AccountApiException {
         final TenantContext tenantContext = context.createContext(request);
         final Pagination<Account> accounts = accountUserApi.getAccounts(offset, limit, tenantContext);
-        final URI nextPageUri = uriBuilder.nextPage(AccountResource.class, "getAccounts", accounts.getNextOffset(), limit, ImmutableMap.<String, String>of());
-        return buildStreamingAccountsResponse(accounts, accountWithBalance, accountWithBalanceAndCBA, nextPageUri, tenantContext);
+        final URI nextPageUri = uriBuilder.nextPage(AccountResource.class, "getAccounts", accounts.getNextOffset(), limit, ImmutableMap.<String, String>of(QUERY_ACCOUNT_WITH_BALANCE, accountWithBalance.toString(),
+                                                                                                                                                           QUERY_ACCOUNT_WITH_BALANCE_AND_CBA, accountWithBalanceAndCBA.toString(),
+                                                                                                                                                           QUERY_AUDIT, auditMode.getLevel().toString()));
+        return buildStreamingPaginationResponse(accounts,
+                                                new Function<Account, AccountJson>() {
+                                                    @Override
+                                                    public AccountJson apply(final Account account) {
+                                                        final AccountAuditLogs accountAuditLogs = auditUserApi.getAccountAuditLogs(account.getId(), auditMode.getLevel(), tenantContext);
+                                                        return getAccount(account, accountWithBalance, accountWithBalanceAndCBA, accountAuditLogs, tenantContext);
+                                                    }
+                                                },
+                                                nextPageUri);
     }
 
     @GET
@@ -175,38 +186,23 @@ public class AccountResource extends JaxRsResourceBase {
                                    @QueryParam(QUERY_SEARCH_LIMIT) @DefaultValue("100") final Long limit,
                                    @QueryParam(QUERY_ACCOUNT_WITH_BALANCE) @DefaultValue("false") final Boolean accountWithBalance,
                                    @QueryParam(QUERY_ACCOUNT_WITH_BALANCE_AND_CBA) @DefaultValue("false") final Boolean accountWithBalanceAndCBA,
+                                   @QueryParam(QUERY_AUDIT) @DefaultValue("NONE") final AuditMode auditMode,
                                    @javax.ws.rs.core.Context final HttpServletRequest request) throws AccountApiException {
         final TenantContext tenantContext = context.createContext(request);
         final Pagination<Account> accounts = accountUserApi.searchAccounts(searchKey, offset, limit, tenantContext);
-        final URI nextPageUri = uriBuilder.nextPage(AccountResource.class, "searchAccounts", accounts.getNextOffset(), limit, ImmutableMap.<String, String>of("searchKey", searchKey));
-        return buildStreamingAccountsResponse(accounts, accountWithBalance, accountWithBalanceAndCBA, nextPageUri, tenantContext);
-    }
-
-    private Response buildStreamingAccountsResponse(final Pagination<Account> accounts, final Boolean accountWithBalance,
-                                                    final Boolean accountWithBalanceAndCBA, final URI nextPageUri, final TenantContext tenantContext) {
-        final StreamingOutput json = new StreamingOutput() {
-            @Override
-            public void write(final OutputStream output) throws IOException, WebApplicationException {
-                final JsonGenerator generator = mapper.getFactory().createJsonGenerator(output);
-                generator.configure(JsonGenerator.Feature.AUTO_CLOSE_TARGET, false);
-
-                generator.writeStartArray();
-                for (final Account account : accounts) {
-                    final AccountJson asJson = getAccount(account, accountWithBalance, accountWithBalanceAndCBA, tenantContext);
-                    generator.writeObject(asJson);
-                }
-                generator.writeEndArray();
-                generator.close();
-            }
-        };
-        return Response.status(Status.OK)
-                       .entity(json)
-                       .header(HDR_PAGINATION_CURRENT_OFFSET, accounts.getCurrentOffset())
-                       .header(HDR_PAGINATION_NEXT_OFFSET, accounts.getNextOffset())
-                       .header(HDR_PAGINATION_TOTAL_NB_RECORDS, accounts.getTotalNbRecords())
-                       .header(HDR_PAGINATION_MAX_NB_RECORDS, accounts.getMaxNbRecords())
-                       .header(HDR_PAGINATION_NEXT_PAGE_URI, nextPageUri)
-                       .build();
+        final URI nextPageUri = uriBuilder.nextPage(AccountResource.class, "searchAccounts", accounts.getNextOffset(), limit, ImmutableMap.<String, String>of("searchKey", searchKey,
+                                                                                                                                                              QUERY_ACCOUNT_WITH_BALANCE, accountWithBalance.toString(),
+                                                                                                                                                              QUERY_ACCOUNT_WITH_BALANCE_AND_CBA, accountWithBalanceAndCBA.toString(),
+                                                                                                                                                              QUERY_AUDIT, auditMode.getLevel().toString()));
+        return buildStreamingPaginationResponse(accounts,
+                                                new Function<Account, AccountJson>() {
+                                                    @Override
+                                                    public AccountJson apply(final Account account) {
+                                                        final AccountAuditLogs accountAuditLogs = auditUserApi.getAccountAuditLogs(account.getId(), auditMode.getLevel(), tenantContext);
+                                                        return getAccount(account, accountWithBalance, accountWithBalanceAndCBA, accountAuditLogs, tenantContext);
+                                                    }
+                                                },
+                                                nextPageUri);
     }
 
     @GET
@@ -238,23 +234,26 @@ public class AccountResource extends JaxRsResourceBase {
     public Response getAccountByKey(@QueryParam(QUERY_EXTERNAL_KEY) final String externalKey,
                                     @QueryParam(QUERY_ACCOUNT_WITH_BALANCE) @DefaultValue("false") final Boolean accountWithBalance,
                                     @QueryParam(QUERY_ACCOUNT_WITH_BALANCE_AND_CBA) @DefaultValue("false") final Boolean accountWithBalanceAndCBA,
+                                    @QueryParam(QUERY_AUDIT) @DefaultValue("NONE") final AuditMode auditMode,
                                     @javax.ws.rs.core.Context final HttpServletRequest request) throws AccountApiException {
         final TenantContext tenantContext = context.createContext(request);
         final Account account = accountUserApi.getAccountByKey(externalKey, tenantContext);
-        final AccountJson accountJson = getAccount(account, accountWithBalance, accountWithBalanceAndCBA, tenantContext);
+        final AccountAuditLogs accountAuditLogs = auditUserApi.getAccountAuditLogs(account.getId(), auditMode.getLevel(), tenantContext);
+        final AccountJson accountJson = getAccount(account, accountWithBalance, accountWithBalanceAndCBA, accountAuditLogs, tenantContext);
         return Response.status(Status.OK).entity(accountJson).build();
     }
 
-    private AccountJson getAccount(final Account account, final Boolean accountWithBalance, final Boolean accountWithBalanceAndCBA, final TenantContext tenantContext) {
+    private AccountJson getAccount(final Account account, final Boolean accountWithBalance, final Boolean accountWithBalanceAndCBA,
+                                   final AccountAuditLogs auditLogs, final TenantContext tenantContext) {
         if (accountWithBalanceAndCBA) {
             final BigDecimal accountBalance = invoiceApi.getAccountBalance(account.getId(), tenantContext);
             final BigDecimal accountCBA = invoiceApi.getAccountCBA(account.getId(), tenantContext);
-            return new AccountJson(account, accountBalance, accountCBA);
+            return new AccountJson(account, accountBalance, accountCBA, auditLogs);
         } else if (accountWithBalance) {
             final BigDecimal accountBalance = invoiceApi.getAccountBalance(account.getId(), tenantContext);
-            return new AccountJson(account, accountBalance, null);
+            return new AccountJson(account, accountBalance, null, auditLogs);
         } else {
-            return new AccountJson(account, null, null);
+            return new AccountJson(account, null, null, auditLogs);
         }
     }
 
@@ -265,10 +264,11 @@ public class AccountResource extends JaxRsResourceBase {
                                   @HeaderParam(HDR_CREATED_BY) final String createdBy,
                                   @HeaderParam(HDR_REASON) final String reason,
                                   @HeaderParam(HDR_COMMENT) final String comment,
-                                  @javax.ws.rs.core.Context final HttpServletRequest request) throws AccountApiException {
+                                  @javax.ws.rs.core.Context final HttpServletRequest request,
+                                  @javax.ws.rs.core.Context final UriInfo uriInfo) throws AccountApiException {
         final AccountData data = json.toAccountData();
         final Account account = accountUserApi.createAccount(data, context.createContext(createdBy, reason, comment, request));
-        return uriBuilder.buildResponse(AccountResource.class, "getAccount", account.getId());
+        return uriBuilder.buildResponse(uriInfo, AccountResource.class, "getAccount", account.getId());
     }
 
     @PUT
@@ -284,7 +284,7 @@ public class AccountResource extends JaxRsResourceBase {
         final AccountData data = json.toAccountData();
         final UUID uuid = UUID.fromString(accountId);
         accountUserApi.updateAccount(uuid, data, context.createContext(createdBy, reason, comment, request));
-        return getAccount(accountId, false, false, request);
+        return getAccount(accountId, false, false, new AuditMode(AuditLevel.NONE.toString()), request);
     }
 
     // Not supported
@@ -518,15 +518,17 @@ public class AccountResource extends JaxRsResourceBase {
     @Produces(APPLICATION_JSON)
     public Response getPaymentMethods(@PathParam("accountId") final String accountId,
                                       @QueryParam(QUERY_PAYMENT_METHOD_PLUGIN_INFO) @DefaultValue("false") final Boolean withPluginInfo,
+                                      @QueryParam(QUERY_AUDIT) @DefaultValue("NONE") final AuditMode auditMode,
                                       @javax.ws.rs.core.Context final HttpServletRequest request) throws AccountApiException, PaymentApiException {
         final TenantContext tenantContext = context.createContext(request);
 
         final Account account = accountUserApi.getAccountById(UUID.fromString(accountId), tenantContext);
         final List<PaymentMethod> methods = paymentApi.getPaymentMethods(account, withPluginInfo, tenantContext);
+        final AccountAuditLogs accountAuditLogs = auditUserApi.getAccountAuditLogs(account.getId(), auditMode.getLevel(), tenantContext);
         final List<PaymentMethodJson> json = new ArrayList<PaymentMethodJson>(Collections2.transform(methods, new Function<PaymentMethod, PaymentMethodJson>() {
             @Override
             public PaymentMethodJson apply(final PaymentMethod input) {
-                return PaymentMethodJson.toPaymentMethodJson(account, input);
+                return PaymentMethodJson.toPaymentMethodJson(account, input, accountAuditLogs);
             }
         }));
 
@@ -636,9 +638,10 @@ public class AccountResource extends JaxRsResourceBase {
                                        @HeaderParam(HDR_CREATED_BY) final String createdBy,
                                        @HeaderParam(HDR_REASON) final String reason,
                                        @HeaderParam(HDR_COMMENT) final String comment,
-                                       @javax.ws.rs.core.Context final HttpServletRequest request) throws CustomFieldApiException {
+                                       @javax.ws.rs.core.Context final HttpServletRequest request,
+                                       @javax.ws.rs.core.Context final UriInfo uriInfo) throws CustomFieldApiException {
         return super.createCustomFields(UUID.fromString(id), customFields,
-                                        context.createContext(createdBy, reason, comment, request));
+                                        context.createContext(createdBy, reason, comment, request), uriInfo);
     }
 
     @DELETE
@@ -650,7 +653,7 @@ public class AccountResource extends JaxRsResourceBase {
                                        @HeaderParam(HDR_CREATED_BY) final String createdBy,
                                        @HeaderParam(HDR_REASON) final String reason,
                                        @HeaderParam(HDR_COMMENT) final String comment,
-                                       @javax.ws.rs.core.Context final HttpServletRequest request) {
+                                       @javax.ws.rs.core.Context final HttpServletRequest request) throws CustomFieldApiException {
         return super.deleteCustomFields(UUID.fromString(id), customFieldList,
                                         context.createContext(createdBy, reason, comment, request));
     }
@@ -745,7 +748,8 @@ public class AccountResource extends JaxRsResourceBase {
                              @HeaderParam(HDR_CREATED_BY) final String createdBy,
                              @HeaderParam(HDR_REASON) final String reason,
                              @HeaderParam(HDR_COMMENT) final String comment,
-                             @javax.ws.rs.core.Context final HttpServletRequest request) throws AccountApiException {
+                             @javax.ws.rs.core.Context final HttpServletRequest request,
+                             @javax.ws.rs.core.Context final UriInfo uriInfo) throws AccountApiException {
         final CallContext callContext = context.createContext(createdBy, reason, comment, request);
 
         final UUID accountId = UUID.fromString(id);
@@ -753,9 +757,20 @@ public class AccountResource extends JaxRsResourceBase {
         // Make sure the account exist or we will confuse the history and auditing code
         accountUserApi.getAccountById(accountId, callContext);
 
-        accountUserApi.addEmail(accountId, json.toAccountEmail(UUID.randomUUID()), callContext);
+        // Make sure the email doesn't exist
+        final AccountEmail existingEmail = Iterables.<AccountEmail>tryFind(accountUserApi.getEmails(accountId, callContext),
+                                                                           new Predicate<AccountEmail>() {
+                                                                               @Override
+                                                                               public boolean apply(final AccountEmail input) {
+                                                                                   return input.getEmail().equals(json.getEmail());
+                                                                               }
+                                                                           })
+                                                    .orNull();
+        if (existingEmail == null) {
+            accountUserApi.addEmail(accountId, json.toAccountEmail(UUID.randomUUID()), callContext);
+        }
 
-        return uriBuilder.buildResponse(AccountResource.class, "getEmails", json.getAccountId());
+        return uriBuilder.buildResponse(uriInfo, AccountResource.class, "getEmails", json.getAccountId());
     }
 
     @DELETE

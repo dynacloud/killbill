@@ -27,14 +27,15 @@ import java.util.UUID;
 import javax.inject.Inject;
 
 import org.joda.time.DateTimeZone;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.ning.billing.ErrorCode;
 import com.ning.billing.ObjectType;
+import com.ning.billing.callcontext.InternalCallContext;
 import com.ning.billing.callcontext.InternalTenantContext;
 import com.ning.billing.entitlement.AccountEntitlements;
 import com.ning.billing.entitlement.EntitlementInternalApi;
-import com.ning.billing.entitlement.EventsStream;
-import com.ning.billing.entitlement.api.svcs.DefaultEntitlementInternalApi;
 import com.ning.billing.entitlement.engine.core.EntitlementUtils;
 import com.ning.billing.subscription.api.SubscriptionBase;
 import com.ning.billing.subscription.api.SubscriptionBaseInternalApi;
@@ -42,18 +43,26 @@ import com.ning.billing.subscription.api.user.SubscriptionBaseApiException;
 import com.ning.billing.subscription.api.user.SubscriptionBaseBundle;
 import com.ning.billing.util.cache.Cachable.CacheType;
 import com.ning.billing.util.cache.CacheControllerDispatcher;
+import com.ning.billing.util.callcontext.CallContext;
 import com.ning.billing.util.callcontext.InternalCallContextFactory;
 import com.ning.billing.util.callcontext.TenantContext;
 import com.ning.billing.util.customfield.ShouldntHappenException;
 import com.ning.billing.util.dao.NonEntityDao;
+import com.ning.billing.util.entity.Pagination;
+import com.ning.billing.util.entity.dao.DefaultPaginationHelper.SourcePaginationBuilder;
 
+import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Ordering;
 
+import static com.ning.billing.util.entity.dao.DefaultPaginationHelper.getEntityPaginationNoException;
+
 public class DefaultSubscriptionApi implements SubscriptionApi {
+
+    private static final Logger log = LoggerFactory.getLogger(DefaultSubscriptionApi.class);
 
     private static final Comparator<SubscriptionBundle> SUBSCRIPTION_BUNDLE_COMPARATOR = new Comparator<SubscriptionBundle>() {
         @Override
@@ -136,6 +145,12 @@ public class DefaultSubscriptionApi implements SubscriptionApi {
     }
 
     @Override
+    public void updateExternalKey(final UUID uuid, final String newExternalKey, final CallContext callContext) {
+        final InternalCallContext internalContext = internalCallContextFactory.createInternalCallContext(callContext);
+        subscriptionBaseInternalApi.updateExternalKey(uuid, newExternalKey, internalContext);
+    }
+
+    @Override
     public List<SubscriptionBundle> getSubscriptionBundlesForAccountIdAndExternalKey(final UUID accountId, final String externalKey, final TenantContext context) throws SubscriptionApiException {
         return ImmutableList.<SubscriptionBundle>copyOf(Iterables.<SubscriptionBundle>filter(getSubscriptionBundlesForAccount(accountId, context),
                                                                                              new Predicate<SubscriptionBundle>() {
@@ -152,11 +167,11 @@ public class DefaultSubscriptionApi implements SubscriptionApi {
         try {
             final UUID activeSubscriptionIdForKey = entitlementUtils.getFirstActiveSubscriptionIdForKeyOrNull(externalKey, internalContext);
             if (activeSubscriptionIdForKey == null) {
-                throw new SubscriptionApiException(new SubscriptionBaseApiException(ErrorCode.SUB_CREATE_ACTIVE_BUNDLE_KEY_EXISTS, externalKey));
+                throw new SubscriptionApiException(new SubscriptionBaseApiException(ErrorCode.SUB_GET_INVALID_BUNDLE_KEY, externalKey));
             }
             final SubscriptionBase subscriptionBase = subscriptionBaseInternalApi.getSubscriptionFromId(activeSubscriptionIdForKey, internalContext);
             return getSubscriptionBundle(subscriptionBase.getBundleId(), context);
-        } catch (SubscriptionBaseApiException e) {
+        } catch (final SubscriptionBaseApiException e) {
             throw new SubscriptionApiException(e);
         }
     }
@@ -180,12 +195,60 @@ public class DefaultSubscriptionApi implements SubscriptionApi {
         return getSubscriptionBundlesForAccount(accountId, context);
     }
 
+    @Override
+    public Pagination<SubscriptionBundle> getSubscriptionBundles(final Long offset, final Long limit, final TenantContext context) {
+        final InternalTenantContext internalContext = internalCallContextFactory.createInternalTenantContext(context);
+        return getEntityPaginationNoException(limit,
+                                              new SourcePaginationBuilder<SubscriptionBaseBundle, SubscriptionApiException>() {
+                                                  @Override
+                                                  public Pagination<SubscriptionBaseBundle> build() {
+                                                      return subscriptionBaseInternalApi.getBundles(offset, limit, internalContext);
+                                                  }
+                                              },
+                                              new Function<SubscriptionBaseBundle, SubscriptionBundle>() {
+                                                  @Override
+                                                  public SubscriptionBundle apply(final SubscriptionBaseBundle subscriptionBaseBundle) {
+                                                      try {
+                                                          return getSubscriptionBundle(subscriptionBaseBundle.getId(), context);
+                                                      } catch (final SubscriptionApiException e) {
+                                                          log.warn("Error retrieving subscription", e);
+                                                          return null;
+                                                      }
+                                                  }
+                                              }
+                                             );
+    }
+
+    @Override
+    public Pagination<SubscriptionBundle> searchSubscriptionBundles(final String searchKey, final Long offset, final Long limit, final TenantContext context) {
+        final InternalTenantContext internalContext = internalCallContextFactory.createInternalTenantContext(context);
+        return getEntityPaginationNoException(limit,
+                                              new SourcePaginationBuilder<SubscriptionBaseBundle, SubscriptionApiException>() {
+                                                  @Override
+                                                  public Pagination<SubscriptionBaseBundle> build() {
+                                                      return subscriptionBaseInternalApi.searchBundles(searchKey, offset, limit, internalContext);
+                                                  }
+                                              },
+                                              new Function<SubscriptionBaseBundle, SubscriptionBundle>() {
+                                                  @Override
+                                                  public SubscriptionBundle apply(final SubscriptionBaseBundle subscriptionBaseBundle) {
+                                                      try {
+                                                          return getSubscriptionBundle(subscriptionBaseBundle.getId(), context);
+                                                      } catch (final SubscriptionApiException e) {
+                                                          log.warn("Error retrieving subscription", e);
+                                                          return null;
+                                                      }
+                                                  }
+                                              }
+                                             );
+    }
+
     private List<SubscriptionBundle> getSubscriptionBundlesForAccount(final UUID accountId, final TenantContext tenantContext) throws SubscriptionApiException {
         // Retrieve entitlements
         final AccountEntitlements accountEntitlements;
         try {
             accountEntitlements = entitlementInternalApi.getAllEntitlementsForAccountId(accountId, tenantContext);
-        } catch (EntitlementApiException e) {
+        } catch (final EntitlementApiException e) {
             throw new SubscriptionApiException(e);
         }
 

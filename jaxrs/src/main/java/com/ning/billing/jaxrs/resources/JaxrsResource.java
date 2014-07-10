@@ -80,6 +80,7 @@ public interface JaxrsResource {
 
     public static final String QUERY_PAYMENT_EXTERNAL = "externalPayment";
     public static final String QUERY_PAYMENT_WITH_REFUNDS_AND_CHARGEBACKS = "withRefundsAndChargebacks";
+    public static final String QUERY_PAYMENT_PLUGIN_NAME = "pluginName";
 
     public static final String QUERY_TAGS = "tagList";
     public static final String QUERY_TAGS_INCLUDED_DELETED = "includedDeleted";
@@ -147,7 +148,11 @@ public interface JaxrsResource {
     public static final String CHARGEBACKS_PATH = PREFIX + "/" + CHARGEBACKS;
 
     public static final String TAGS = "tags";
+    public static final String TAGS_PATH = PREFIX + "/" + TAGS;
+
     public static final String CUSTOM_FIELDS = "customFields";
+    public static final String CUSTOM_FIELDS_PATH = PREFIX + "/" + CUSTOM_FIELDS;
+
     public static final String EMAILS = "emails";
     public static final String EMAIL_NOTIFICATIONS = "emailNotifications";
 

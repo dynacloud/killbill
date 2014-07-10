@@ -16,6 +16,9 @@
 
 package com.ning.billing.jaxrs.resources;
 
+import java.io.IOException;
+import java.io.OutputStream;
+import java.net.URI;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedList;
@@ -23,7 +26,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import javax.annotation.Nullable;
+import javax.ws.rs.WebApplicationException;
 import javax.ws.rs.core.Response;
+import javax.ws.rs.core.Response.Status;
+import javax.ws.rs.core.StreamingOutput;
 import javax.ws.rs.core.UriInfo;
 
 import org.joda.time.DateTime;
@@ -41,6 +48,7 @@ import com.ning.billing.account.api.AccountApiException;
 import com.ning.billing.account.api.AccountUserApi;
 import com.ning.billing.clock.Clock;
 import com.ning.billing.jaxrs.json.CustomFieldJson;
+import com.ning.billing.jaxrs.json.JsonBase;
 import com.ning.billing.jaxrs.json.TagJson;
 import com.ning.billing.jaxrs.util.Context;
 import com.ning.billing.jaxrs.util.JaxrsUriBuilder;
@@ -56,13 +64,18 @@ import com.ning.billing.util.callcontext.CallContext;
 import com.ning.billing.util.callcontext.TenantContext;
 import com.ning.billing.util.customfield.CustomField;
 import com.ning.billing.util.customfield.StringCustomField;
+import com.ning.billing.util.entity.Entity;
+import com.ning.billing.util.entity.Pagination;
 import com.ning.billing.util.jackson.ObjectMapper;
 import com.ning.billing.util.tag.Tag;
 import com.ning.billing.util.tag.TagDefinition;
 
+import com.fasterxml.jackson.core.JsonGenerator;
 import com.google.common.base.Function;
+import com.google.common.base.Predicate;
 import com.google.common.collect.Collections2;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Iterables;
 
 public abstract class JaxRsResourceBase implements JaxrsResource {
 
@@ -114,7 +127,7 @@ public abstract class JaxRsResourceBase implements JaxrsResource {
             final TagDefinition tagDefinition = tagDefinitionsCache.get(tag.getTagDefinitionId());
 
             final List<AuditLog> auditLogs = tagsAuditLogs.getAuditLogs(tag.getId());
-            result.add(new TagJson(tagDefinition, auditLogs));
+            result.add(new TagJson(tag, tagDefinition, auditLogs));
         }
 
         return Response.status(Response.Status.OK).entity(result).build();
@@ -164,21 +177,83 @@ public abstract class JaxRsResourceBase implements JaxrsResource {
 
     protected Response createCustomFields(final UUID id,
                                           final List<CustomFieldJson> customFields,
-                                          final CallContext context) throws CustomFieldApiException {
+                                          final CallContext context,
+                                          final UriInfo uriInfo) throws CustomFieldApiException {
         final LinkedList<CustomField> input = new LinkedList<CustomField>();
         for (final CustomFieldJson cur : customFields) {
             input.add(new StringCustomField(cur.getName(), cur.getValue(), getObjectType(), id, context.getCreatedDate()));
         }
 
         customFieldUserApi.addCustomFields(input, context);
-        return uriBuilder.buildResponse(this.getClass(), "createCustomFields", id);
+        return uriBuilder.buildResponse(uriInfo, this.getClass(), "getCustomFields", id);
     }
 
+    /**
+     * @param id              the if of the object for which the custom fields apply
+     * @param customFieldList a comma separated list of custom field ids or null if they should all be removed
+     * @param context         the context
+     * @return
+     * @throws CustomFieldApiException
+     */
     protected Response deleteCustomFields(final UUID id,
-                                          final String customFieldList,
-                                          final CallContext context) {
-        // STEPH missing API to delete custom fields
+                                          @Nullable final String customFieldList,
+                                          final CallContext context) throws CustomFieldApiException {
+
+        // Retrieve all the custom fields for the object
+        final List<CustomField> fields = customFieldUserApi.getCustomFieldsForObject(id, getObjectType(), context);
+
+        final String[] requestedIds = customFieldList != null ? customFieldList.split("\\s*,\\s*") : null;
+
+        // Filter the proposed list to only keep the one that exist and indeed match our object
+        final Iterable inputIterable = Iterables.filter(fields, new Predicate<CustomField>() {
+            @Override
+            public boolean apply(final CustomField input) {
+                if (customFieldList == null) {
+                    return true;
+                }
+                for (final String cur : requestedIds) {
+                    final UUID curId = UUID.fromString(cur);
+                    if (input.getId().equals(curId)) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+        });
+
+        if (inputIterable.iterator().hasNext()) {
+            final List<CustomField> input = ImmutableList.<CustomField>copyOf(inputIterable);
+            customFieldUserApi.removeCustomFields(input, context);
+        }
         return Response.status(Response.Status.OK).build();
+    }
+
+    protected <E extends Entity, J extends JsonBase> Response buildStreamingPaginationResponse(final Pagination<E> entities,
+                                                                                               final Function<E, J> toJson,
+                                                                                               final URI nextPageUri) {
+        final StreamingOutput json = new StreamingOutput() {
+            @Override
+            public void write(final OutputStream output) throws IOException, WebApplicationException {
+                final JsonGenerator generator = mapper.getFactory().createJsonGenerator(output);
+                generator.configure(JsonGenerator.Feature.AUTO_CLOSE_TARGET, false);
+
+                generator.writeStartArray();
+                for (final E entity : entities) {
+                    generator.writeObject(toJson.apply(entity));
+                }
+                generator.writeEndArray();
+                generator.close();
+            }
+        };
+
+        return Response.status(Status.OK)
+                       .entity(json)
+                       .header(HDR_PAGINATION_CURRENT_OFFSET, entities.getCurrentOffset())
+                       .header(HDR_PAGINATION_NEXT_OFFSET, entities.getNextOffset())
+                       .header(HDR_PAGINATION_TOTAL_NB_RECORDS, entities.getTotalNbRecords())
+                       .header(HDR_PAGINATION_MAX_NB_RECORDS, entities.getMaxNbRecords())
+                       .header(HDR_PAGINATION_NEXT_PAGE_URI, nextPageUri)
+                       .build();
     }
 
     protected LocalDate toLocalDate(final UUID accountId, final String inputDate, final TenantContext context) {

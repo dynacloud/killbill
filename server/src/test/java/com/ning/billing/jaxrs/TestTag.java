@@ -17,103 +17,149 @@
 package com.ning.billing.jaxrs;
 
 import java.util.List;
+import java.util.UUID;
 
-import javax.ws.rs.core.Response.Status;
+import javax.annotation.Nullable;
 
+import org.testng.Assert;
 import org.testng.annotations.Test;
 
-import com.ning.billing.jaxrs.json.TagDefinitionJson;
-import com.ning.billing.jaxrs.resources.JaxrsResource;
-import com.ning.http.client.Response;
+import com.ning.billing.ObjectType;
+import com.ning.billing.client.KillBillClientException;
+import com.ning.billing.client.model.Account;
+import com.ning.billing.client.model.Tag;
+import com.ning.billing.client.model.TagDefinition;
+import com.ning.billing.client.model.Tags;
+import com.ning.billing.util.tag.ControlTag;
+import com.ning.billing.util.tag.ControlTagType;
 
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.google.common.collect.ImmutableList;
 
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNotNull;
+import static org.testng.Assert.fail;
 
 public class TestTag extends TestJaxrsBase {
 
-    @Test(groups = "slow")
+    @Test(groups = "slow", description = "Cannot add badly formatted TagDefinition")
     public void testTagErrorHandling() throws Exception {
-        final TagDefinitionJson[] tags = new TagDefinitionJson[]{new TagDefinitionJson(null, false, null, null, null),
-                                                                 new TagDefinitionJson(null, false, "something", null, null),
-                                                                 new TagDefinitionJson(null, false, null, "something", null)};
-        for (final TagDefinitionJson tag : tags) {
-            final String baseJson = mapper.writeValueAsString(tag);
-            final Response response = doPost(JaxrsResource.TAG_DEFINITIONS_PATH, baseJson, DEFAULT_EMPTY_QUERY, DEFAULT_HTTP_TIMEOUT_SEC);
-            assertEquals(response.getStatusCode(), Status.BAD_REQUEST.getStatusCode());
+        final TagDefinition[] tagDefinitions = {new TagDefinition(null, false, null, null, null),
+                                                new TagDefinition(null, false, "something", null, null),
+                                                new TagDefinition(null, false, null, "something", null)};
+
+        for (final TagDefinition tagDefinition : tagDefinitions) {
+            try {
+                killBillClient.createTagDefinition(tagDefinition, createdBy, reason, comment);
+                fail();
+            } catch (final KillBillClientException e) {
+            }
         }
     }
 
-    @Test(groups = "slow")
+    @Test(groups = "slow", description = "Can create a TagDefinition")
     public void testTagDefinitionOk() throws Exception {
-        final TagDefinitionJson input = new TagDefinitionJson(null, false, "blue", "relaxing color", ImmutableList.<String>of());
-        String baseJson = mapper.writeValueAsString(input);
-        Response response = doPost(JaxrsResource.TAG_DEFINITIONS_PATH, baseJson, DEFAULT_EMPTY_QUERY, DEFAULT_HTTP_TIMEOUT_SEC);
-        assertEquals(response.getStatusCode(), Status.CREATED.getStatusCode());
+        final TagDefinition input = new TagDefinition(null, false, "blue", "relaxing color", ImmutableList.<ObjectType>of());
 
-        final String location = response.getHeader("Location");
-        assertNotNull(location);
-
-        // Retrieves by Id based on Location returned
-        response = doGetWithUrl(location, DEFAULT_EMPTY_QUERY, DEFAULT_HTTP_TIMEOUT_SEC);
-        assertEquals(response.getStatusCode(), Status.OK.getStatusCode());
-
-        baseJson = response.getResponseBody();
-        final TagDefinitionJson objFromJson = mapper.readValue(baseJson, TagDefinitionJson.class);
+        final TagDefinition objFromJson = killBillClient.createTagDefinition(input, createdBy, reason, comment);
         assertNotNull(objFromJson);
         assertEquals(objFromJson.getName(), input.getName());
         assertEquals(objFromJson.getDescription(), input.getDescription());
     }
 
-    @Test(groups = "slow")
+    @Test(groups = "slow", description = "Can create and delete TagDefinitions")
     public void testMultipleTagDefinitionOk() throws Exception {
-        Response response = doGet(JaxrsResource.TAG_DEFINITIONS_PATH, DEFAULT_EMPTY_QUERY, DEFAULT_HTTP_TIMEOUT_SEC);
-        assertEquals(response.getStatusCode(), Status.OK.getStatusCode());
-        String baseJson = response.getResponseBody();
+        List<TagDefinition> objFromJson = killBillClient.getTagDefinitions();
+        final int sizeSystemTag = objFromJson.isEmpty() ? 0 : objFromJson.size();
 
-        List<TagDefinitionJson> objFromJson = mapper.readValue(baseJson, new TypeReference<List<TagDefinitionJson>>() {});
-        final int sizeSystemTag = (objFromJson == null || objFromJson.size() == 0) ? 0 : objFromJson.size();
+        final TagDefinition inputBlue = new TagDefinition(null, false, "blue", "relaxing color", ImmutableList.<ObjectType>of());
+        killBillClient.createTagDefinition(inputBlue, createdBy, reason, comment);
 
-        final TagDefinitionJson inputBlue = new TagDefinitionJson(null, false, "blue", "relaxing color", ImmutableList.<String>of());
-        baseJson = mapper.writeValueAsString(inputBlue);
-        response = doPost(JaxrsResource.TAG_DEFINITIONS_PATH, baseJson, DEFAULT_EMPTY_QUERY, DEFAULT_HTTP_TIMEOUT_SEC);
-        assertEquals(response.getStatusCode(), Status.CREATED.getStatusCode());
+        final TagDefinition inputRed = new TagDefinition(null, false, "red", "hot color", ImmutableList.<ObjectType>of());
+        killBillClient.createTagDefinition(inputRed, createdBy, reason, comment);
 
-        final TagDefinitionJson inputRed = new TagDefinitionJson(null, false, "red", "hot color", ImmutableList.<String>of());
-        baseJson = mapper.writeValueAsString(inputRed);
-        response = doPost(JaxrsResource.TAG_DEFINITIONS_PATH, baseJson, DEFAULT_EMPTY_QUERY, DEFAULT_HTTP_TIMEOUT_SEC);
-        assertEquals(response.getStatusCode(), Status.CREATED.getStatusCode());
+        final TagDefinition inputYellow = new TagDefinition(null, false, "yellow", "vibrant color", ImmutableList.<ObjectType>of());
+        killBillClient.createTagDefinition(inputYellow, createdBy, reason, comment);
 
-        final TagDefinitionJson inputYellow = new TagDefinitionJson(null, false, "yellow", "vibrant color", ImmutableList.<String>of());
-        baseJson = mapper.writeValueAsString(inputYellow);
-        response = doPost(JaxrsResource.TAG_DEFINITIONS_PATH, baseJson, DEFAULT_EMPTY_QUERY, DEFAULT_HTTP_TIMEOUT_SEC);
-        assertEquals(response.getStatusCode(), Status.CREATED.getStatusCode());
+        final TagDefinition inputGreen = new TagDefinition(null, false, "green", "super relaxing color", ImmutableList.<ObjectType>of());
+        killBillClient.createTagDefinition(inputGreen, createdBy, reason, comment);
 
-        final TagDefinitionJson inputGreen = new TagDefinitionJson(null, false, "green", "super relaxing color", ImmutableList.<String>of());
-        baseJson = mapper.writeValueAsString(inputGreen);
-        response = doPost(JaxrsResource.TAG_DEFINITIONS_PATH, baseJson, DEFAULT_EMPTY_QUERY, DEFAULT_HTTP_TIMEOUT_SEC);
-        assertEquals(response.getStatusCode(), Status.CREATED.getStatusCode());
-
-        response = doGet(JaxrsResource.TAG_DEFINITIONS_PATH, DEFAULT_EMPTY_QUERY, DEFAULT_HTTP_TIMEOUT_SEC);
-        assertEquals(response.getStatusCode(), Status.OK.getStatusCode());
-        baseJson = response.getResponseBody();
-
-        objFromJson = mapper.readValue(baseJson, new TypeReference<List<TagDefinitionJson>>() {});
+        objFromJson = killBillClient.getTagDefinitions();
         assertNotNull(objFromJson);
         assertEquals(objFromJson.size(), 4 + sizeSystemTag);
 
-        final String uri = JaxrsResource.TAG_DEFINITIONS_PATH + "/" + objFromJson.get(0).getId();
-        response = doDelete(uri, DEFAULT_EMPTY_QUERY, DEFAULT_HTTP_TIMEOUT_SEC);
-        assertEquals(response.getStatusCode(), Status.NO_CONTENT.getStatusCode());
+        killBillClient.deleteTagDefinition(objFromJson.get(0).getId(), createdBy, reason, comment);
 
-        response = doGet(JaxrsResource.TAG_DEFINITIONS_PATH, DEFAULT_EMPTY_QUERY, DEFAULT_HTTP_TIMEOUT_SEC);
-        assertEquals(response.getStatusCode(), Status.OK.getStatusCode());
-        baseJson = response.getResponseBody();
-
-        objFromJson = mapper.readValue(baseJson, new TypeReference<List<TagDefinitionJson>>() {});
+        objFromJson = killBillClient.getTagDefinitions();
         assertNotNull(objFromJson);
         assertEquals(objFromJson.size(), 3 + sizeSystemTag);
+    }
+
+    @Test(groups = "slow", description = "Can search system tags")
+    public void testSystemTagsPagination() throws Exception {
+        final Account account = createAccount();
+        for (final ControlTagType controlTagType : ControlTagType.values()) {
+            killBillClient.createAccountTag(account.getAccountId(), controlTagType.getId(), createdBy, reason, comment);
+        }
+
+        final Tags allTags = killBillClient.getTags();
+        Assert.assertEquals(allTags.size(), ControlTagType.values().length);
+
+        for (final ControlTagType controlTagType : ControlTagType.values()) {
+            Assert.assertEquals(killBillClient.searchTags(controlTagType.toString()).size(), 1);
+            Assert.assertEquals(killBillClient.searchTags(controlTagType.getDescription()).size(), 1);
+        }
+    }
+
+    @Test(groups = "slow", description = "Can paginate through all tags")
+    public void testTagsPagination() throws Exception {
+        final Account account = createAccount();
+        for (int i = 0; i < 5; i++) {
+            final TagDefinition tagDefinition = new TagDefinition(null, false, UUID.randomUUID().toString().substring(0, 5), UUID.randomUUID().toString(), ImmutableList.<ObjectType>of(ObjectType.ACCOUNT));
+            final UUID tagDefinitionId = killBillClient.createTagDefinition(tagDefinition, createdBy, reason, comment).getId();
+            killBillClient.createAccountTag(account.getAccountId(), tagDefinitionId, createdBy, reason, comment);
+        }
+
+        final Tags allTags = killBillClient.getTags();
+        Assert.assertEquals(allTags.size(), 5);
+
+        Tags page = killBillClient.getTags(0L, 1L);
+        for (int i = 0; i < 5; i++) {
+            Assert.assertNotNull(page);
+            Assert.assertEquals(page.size(), 1);
+            Assert.assertEquals(page.get(0), allTags.get(i));
+            page = page.getNext();
+        }
+        Assert.assertNull(page);
+
+        for (final Tag tag : allTags) {
+            doSearchTag(UUID.randomUUID().toString(), null);
+            doSearchTag(tag.getTagId().toString(), tag);
+            doSearchTag(tag.getTagDefinitionName(), tag);
+
+            final TagDefinition tagDefinition = killBillClient.getTagDefinition(tag.getTagDefinitionId());
+            doSearchTag(tagDefinition.getDescription(), tag);
+        }
+
+        final Tags tags = killBillClient.searchTags(ObjectType.ACCOUNT.toString());
+        Assert.assertEquals(tags.size(), 5);
+        Assert.assertEquals(tags.getPaginationCurrentOffset(), 0);
+        Assert.assertEquals(tags.getPaginationTotalNbRecords(), 5);
+        Assert.assertEquals(tags.getPaginationMaxNbRecords(), 5);
+    }
+
+    private void doSearchTag(final String searchKey, @Nullable final Tag expectedTag) throws KillBillClientException {
+        final Tags tags = killBillClient.searchTags(searchKey);
+        if (expectedTag == null) {
+            Assert.assertTrue(tags.isEmpty());
+            Assert.assertEquals(tags.getPaginationCurrentOffset(), 0);
+            Assert.assertEquals(tags.getPaginationTotalNbRecords(), 0);
+            Assert.assertEquals(tags.getPaginationMaxNbRecords(), 5);
+        } else {
+            Assert.assertEquals(tags.size(), 1);
+            Assert.assertEquals(tags.get(0), expectedTag);
+            Assert.assertEquals(tags.getPaginationCurrentOffset(), 0);
+            Assert.assertEquals(tags.getPaginationTotalNbRecords(), 1);
+            Assert.assertEquals(tags.getPaginationMaxNbRecords(), 5);
+        }
     }
 }
