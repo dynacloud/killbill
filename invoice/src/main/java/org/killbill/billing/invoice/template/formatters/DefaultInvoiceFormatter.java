@@ -52,6 +52,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 
 import static org.killbill.billing.util.DefaultAmountFormatter.round;
+import org.killbill.billing.invoice.calculator.InvoiceCalculatorUtils;
 
 /**
  * Format invoice fields
@@ -109,7 +110,7 @@ public class DefaultInvoiceFormatter implements InvoiceFormatter {
 
         final List<InvoiceItem> formatters = new ArrayList<InvoiceItem>();
         for (final InvoiceItem item : invoiceItems) {
-            formatters.add(new DefaultInvoiceItemFormatter(config, item, dateFormatter, locale));
+            formatters.add(new DefaultInvoiceItemFormatter(config, item, dateFormatter, locale, this));
         }
         return formatters;
     }
@@ -194,6 +195,14 @@ public class DefaultInvoiceFormatter implements InvoiceFormatter {
         return round(Objects.firstNonNull(invoice.getChargedAmount(), BigDecimal.ZERO));
     }
 
+    public BigDecimal getChargedAmountTax() {
+        return round(getChargedAmount().subtract(getChargedAmountExclTax()));
+    }
+    
+    public BigDecimal getChargedAmountExclTax() {
+        return InvoiceCalculatorUtils.computeAmountExclTax(invoice.getChargedAmount(), getCreatedDate());
+    }
+    
     @Override
     public BigDecimal getOriginalChargedAmount() {
         return round(Objects.firstNonNull(invoice.getOriginalChargedAmount(), BigDecimal.ZERO));

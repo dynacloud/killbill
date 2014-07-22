@@ -37,6 +37,7 @@ import com.google.common.base.Objects;
 import com.google.common.base.Strings;
 
 import static org.killbill.billing.util.DefaultAmountFormatter.round;
+import org.killbill.billing.invoice.calculator.InvoiceCalculatorUtils;
 
 /**
  * Format invoice item fields
@@ -48,11 +49,25 @@ public class DefaultInvoiceItemFormatter implements InvoiceItemFormatter {
     private final InvoiceItem item;
     private final DateTimeFormatter dateFormatter;
     private final Locale locale;
+    
+    private final DefaultInvoiceFormatter invoice;
 
     public DefaultInvoiceItemFormatter(final TranslatorConfig config, final InvoiceItem item, final DateTimeFormatter dateFormatter, final Locale locale) {
         this.item = item;
         this.dateFormatter = dateFormatter;
         this.locale = locale;
+        
+        this.invoice = null;
+        
+        this.translator = new DefaultCatalogTranslator(config);
+    }
+
+    public DefaultInvoiceItemFormatter(final TranslatorConfig config, final InvoiceItem item, final DateTimeFormatter dateFormatter, final Locale locale, DefaultInvoiceFormatter invoice) {
+        this.item = item;
+        this.dateFormatter = dateFormatter;
+        this.locale = locale;
+        
+        this.invoice = invoice;
 
         this.translator = new DefaultCatalogTranslator(config);
     }
@@ -60,6 +75,17 @@ public class DefaultInvoiceItemFormatter implements InvoiceItemFormatter {
     @Override
     public BigDecimal getAmount() {
         return round(Objects.firstNonNull(item.getAmount(), BigDecimal.ZERO));
+    }
+      
+    public BigDecimal getAmountTax() {
+        return round(getAmount().subtract(getAmountExclTax()));
+    }
+
+    public BigDecimal getAmountExclTax() {
+        if (invoice == null) {
+            return getAmount();
+        }
+        return InvoiceCalculatorUtils.computeAmountExclTax(getAmount(), invoice.getCreatedDate());
     }
 
     @Override

@@ -28,11 +28,54 @@ import org.killbill.billing.invoice.api.InvoiceItemType;
 import org.killbill.billing.invoice.api.InvoicePayment;
 import org.killbill.billing.invoice.api.InvoicePaymentType;
 import org.killbill.billing.util.currency.KillBillMoney;
+import static org.killbill.billing.util.DefaultAmountFormatter.round;
 
 import com.google.common.base.Predicate;
 import com.google.common.collect.Iterables;
 
+import java.math.RoundingMode;
+import java.util.ArrayList;
+import java.util.Collections;
+
 public abstract class InvoiceCalculatorUtils {
+
+    public static BigDecimal computeAmountExclTax(BigDecimal amount, DateTime date) {
+        return round(amount.divide(lookupTaxFactor1(date), 2, RoundingMode.HALF_UP));
+    }
+    
+    private static ArrayList getTaxFactorTable() {
+        ArrayList<TaxFactorItem> taxTable = new ArrayList();
+        // hardcoded tax values for The Netherlands
+        taxTable.add(new TaxFactorItem(1969, 01, 01, 1.12, 1.04));
+        taxTable.add(new TaxFactorItem(1971, 01, 01, 1.14, 1.04));
+        taxTable.add(new TaxFactorItem(1973, 01, 01, 1.16, 1.04));
+        taxTable.add(new TaxFactorItem(1976, 10, 01, 1.18, 1.04));
+        taxTable.add(new TaxFactorItem(1984, 01, 01, 1.19, 1.05));
+        taxTable.add(new TaxFactorItem(1986, 10, 01, 1.20, 1.05));
+        taxTable.add(new TaxFactorItem(1989, 01, 01, 1.185, 1.06));
+        taxTable.add(new TaxFactorItem(1992, 10, 01, 1.175, 1.06));
+        taxTable.add(new TaxFactorItem(2001, 01, 01, 1.19, 1.06));
+        taxTable.add(new TaxFactorItem(2012, 10, 01, 1.21, 1.06));
+        Collections.reverse(taxTable);
+        return taxTable;
+    }
+    
+    private static TaxFactorItem lookupTaxFactorItem(DateTime date) {
+        ArrayList<TaxFactorItem> taxlist = getTaxFactorTable();
+        
+        for(TaxFactorItem factorItem : taxlist) {
+            if (factorItem.isInEffect(date)) {
+                return factorItem;
+            }
+        }
+        
+        return new TaxFactorItem(1970, 01, 01, 1, 1);
+    }
+    
+    
+    private static BigDecimal lookupTaxFactor1(DateTime date) {
+        return new BigDecimal(lookupTaxFactorItem(date).getTaxFactor1());
+    }
 
     // Invoice adjustments
     public static boolean isInvoiceAdjustmentItem(final InvoiceItem invoiceItem, final Iterable<InvoiceItem> otherInvoiceItems) {

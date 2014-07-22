@@ -50,8 +50,16 @@ public interface InvoiceStrings {
     String getInvoiceItemAmount();
 
     String getInvoiceAmount();
+    
+    String getInvoiceItemAmountTax();
+    
+    String getInvoiceItemAmountExclTax();
 
     String getInvoiceAmountPaid();
+    
+    String getInvoiceAmountTax();
+
+    String getInvoiceAmountExclTax();
 
     String getInvoiceBalance();
 
